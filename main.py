@@ -1,12 +1,14 @@
 import os
 import json
+from multiprocessing import Pool, cpu_count
+from functools import partial
 
 import click
-import requests
 
 from models.http_request import HttpRequests
-from models.m3u8 import M3u8Master, M3u8Playlist
+from models.m3u8 import M3u8Uri, M3u8Master, M3u8Playlist
 from utils.string import to_snake_case
+from utils.downloader import download_file
 
 
 DEFAULT_OUTPUT = "~/.hotty/requests.json"
@@ -29,16 +31,9 @@ def cli(config):
 
 @cli.command()
 @click.option(
-    "-f",
-    "--file",
-    type=click.File("r"),
-    default=os.path.expanduser(DEFAULT_OUTPUT),
+    "-f", "--file", type=click.File("r"), default=os.path.expanduser(DEFAULT_OUTPUT)
 )
-@click.option(
-    "-r",
-    "--resolution",
-    default="1920x1080",
-)
+@click.option("-r", "--resolution", default="1920x1080")
 @click.option("-dir", "--download-directory", type=click.Path(), default=".")
 @click.option("-d", "--download", is_flag=True, default=False)
 @click.option("-alias", "--directory-alias", default="")
@@ -55,16 +50,11 @@ def fetch(
         click.echo(f"Error to load captured HTTP request file {file}.")
         raise click.Abort()
 
-    try:
-        requests = HttpRequests(data)
-    except:
-        click.echo("Error parsing .")
-        raise click.Abort()
-
-    http_request = requests.latest()
+    http_request = HttpRequests(data).latest()
+    m3u8_master_uri = M3u8Uri(http_request.url())
 
     try:
-        m3u8_master = M3u8Master(http_request).fetch()
+        m3u8_master = M3u8Master(m3u8_master_uri).fetch(http_request.headers())
     except IOError as error:
         click.echo(
             click.style(
@@ -74,41 +64,61 @@ def fetch(
         )
         raise click.Abort()
 
-    playlist_uri = m3u8_master.playlist(resolution)
-    print(playlist_uri)
+    playlist_uris = m3u8_master.playlist(resolution)
+    m3u8_playlist_uri = M3u8Uri(playlist_uris.remote_url)
 
     try:
-        m3u8_playlist = M3u8Playlist(http_request, playlist_uri).fetch()
+        m3u8_playlist = M3u8Playlist(m3u8_playlist_uri).fetch(http_request.headers())
     except IOError as error:
         click.echo(
             click.style(
-                f"Error fetching M3U8 playlist {playlist_uri} with error: {error}",
+                f"Error fetching M3U8 playlist {playlist_uris} with error: {error}",
                 fg="red",
             )
         )
         raise click.Abort()
 
-    segments_uris = m3u8_playlist.segments()
-    print(segments_uris)
+    playlist_segments_uris = m3u8_playlist.segments()
+    playlist_key_uris = m3u8_playlist.key()
+
 
     if download:
-        local_path = os.path.join(
-            download_directory, to_snake_case(directory_alias), m3u8_master.id()
+        local_basepath = os.path.join(
+            download_directory, to_snake_case(directory_alias), m3u8_master_uri.id()
         )
 
-        # if not os.path.exists(local_path):
-        #     os.makedirs(local_path, exist_ok=True)
+        local_playlist_basepath = os.path.join(
+            local_basepath, os.path.basename(m3u8_playlist_uri.basepath())
+        )
 
-        # need to remove the query string for local naming
+        if not os.path.exists(local_playlist_basepath):
+            os.makedirs(local_playlist_basepath, exist_ok=True)
 
-        local_master_filename = os.path.join(local_path, m3u8_master.filename())
-        local_playlist_filename = os.path.join(local_path, m3u8_playlist.uri())
-        local_key_filename = os.path.join(local_path, m3u8_playlist.key())
+        pool = Pool(cpu_count())
+        download_func = partial(
+            download_file, local_direcotry_uri=local_basepath, headers=http_request.headers())
+        pool.map(download_func, playlist_segments_uris)
+        pool.close()
+        pool.join()
 
-        print(local_path)
-        print(local_master_filename)
-        print(local_playlist_filename)
-        print(local_key_filename)
+        print(playlist_key_uris.local_uri, playlist_key_uris.remote_url)
+        print(playlist_uris.local_uri, playlist_uris.remote_url)
+        print(m3u8_master_uri.filename(), m3u8_master_uri.url())
+
+        download_file(
+            remote_uris=(playlist_key_uris.local_uri, playlist_key_uris.remote_url), 
+            local_direcotry_uri=local_basepath,
+            headers=http_request.headers())
+
+        download_file(
+            remote_uris=(playlist_uris.local_uri, playlist_uris.remote_url),
+            local_direcotry_uri=local_basepath,
+            headers=http_request.headers())
+
+        download_file(
+            remote_uris=(m3u8_master_uri.filename(), m3u8_master_uri.url()), 
+            local_direcotry_uri=local_basepath,
+            headers=http_request.headers())
 
 
 if __name__ == "__main__":
