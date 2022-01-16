@@ -20,7 +20,7 @@ def download_file(remote_uris, local_direcotry_uri, headers={}):
     print(f'Downloading {url}')
 
     data = requests.get(url, headers=headers)
-    with open(local_filename, 'wb')as file:
+    with open(local_filename, 'wb') as file:
         file.write(data.content)
 
     print(f'HTTP {data.status_code} for {local_filename}')

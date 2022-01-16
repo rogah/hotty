@@ -55,6 +55,9 @@ class M3u8Master:
         self.__m38u__ = m3u8.loads(response.content.decode("utf-8"))
         return self
 
+    def master_uris(self):
+        return FileUri(local_uri=self.__uri__.filename(), remote_url=self.__uri__.url())
+
     def playlists(self):
         return list(
             map(

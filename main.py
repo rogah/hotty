@@ -80,7 +80,9 @@ def fetch(
 
     playlist_segments_uris = m3u8_playlist.segments()
     playlist_key_uris = m3u8_playlist.key()
+    master_uris = m3u8_master.master_uris()
 
+    files_uris = [master_uris, playlist_uris, playlist_key_uris] + playlist_segments_uris
 
     if download:
         local_basepath = os.path.join(
@@ -97,28 +99,9 @@ def fetch(
         pool = Pool(cpu_count())
         download_func = partial(
             download_file, local_direcotry_uri=local_basepath, headers=http_request.headers())
-        pool.map(download_func, playlist_segments_uris)
+        pool.map(download_func, files_uris)
         pool.close()
         pool.join()
-
-        print(playlist_key_uris.local_uri, playlist_key_uris.remote_url)
-        print(playlist_uris.local_uri, playlist_uris.remote_url)
-        print(m3u8_master_uri.filename(), m3u8_master_uri.url())
-
-        download_file(
-            remote_uris=(playlist_key_uris.local_uri, playlist_key_uris.remote_url), 
-            local_direcotry_uri=local_basepath,
-            headers=http_request.headers())
-
-        download_file(
-            remote_uris=(playlist_uris.local_uri, playlist_uris.remote_url),
-            local_direcotry_uri=local_basepath,
-            headers=http_request.headers())
-
-        download_file(
-            remote_uris=(m3u8_master_uri.filename(), m3u8_master_uri.url()), 
-            local_direcotry_uri=local_basepath,
-            headers=http_request.headers())
 
 
 if __name__ == "__main__":
